@@ -9,7 +9,9 @@ const itemSchema = new mongoose.Schema({
     enum: ['pending', 'preparing', 'served', 'cancelled'],
     default: 'pending'
   },
-  
+  category: {
+     type: mongoose.Schema.Types.ObjectId, ref: "Category"
+  }
 });
 
 // Schema for each order entry (a set of items placed at one time)

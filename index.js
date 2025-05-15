@@ -13,11 +13,12 @@ const PORT = process.env.PORT || 5000;
 const tableRoutes = require('./routes/tableRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 
 app.use('/api/tables', tableRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
-
+app.use('/api/categories', categoryRoutes);
 
 
 // Connect to MongoDB

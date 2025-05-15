@@ -19,6 +19,7 @@ router.post("/place", async (req, res) => {
       name: item.name,
       itemPrice: Number(item.itemPrice),
       status: item.status || "pending",
+      category: item.category || "other",
     }));
 
     const newOrderEntry = {
@@ -90,48 +91,14 @@ router.get("/items/:tableNumber", async (req, res) => {
   }
 });
 
-// OPTIONAL: Update status of a single item in a specific table order
-router.patch("/update-status", async (req, res) => {
-  const { tableNumber, itemName, newStatus } = req.body;
 
-  if (!tableNumber || !itemName || !newStatus) {
-    return res.status(400).json({ message: "Missing fields." });
-  }
-
-  try {
-    const orderDoc = await Order.findOne({ tableNumber, status: "open" });
-
-    if (!orderDoc) {
-      return res.status(404).json({ message: "Table order not found." });
-    }
-
-    let updated = false;
-
-    for (const entry of orderDoc.orders) {
-      for (const item of entry.items) {
-        if (item.name === itemName && item.status !== newStatus) {
-          item.status = newStatus;
-          updated = true;
-        }
-      }
-    }
-
-    if (updated) {
-      await orderDoc.save();
-      res.json({ message: `Status of "${itemName}" updated to ${newStatus}.` });
-    } else {
-      res.status(400).json({ message: "No matching items to update." });
-    }
-  } catch (err) {
-    console.error("Error updating item status:", err);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
 
 // Get orders grouped by table, filtered by pending status
 router.get("/by-table", async (req, res) => {
   try {
-    const orders = await Order.find({ "orders.items.status": "pending" }).sort({ updatedAt: -1 });
+    const orders = await Order.find({
+      "orders.items.status": { $in: ["pending", "preparing"] }
+    }).sort({ updatedAt: -1 });
 
     const ordersByTable = orders.reduce((acc, order) => {
       if (!acc[order.tableNumber]) {
@@ -143,11 +110,10 @@ router.get("/by-table", async (req, res) => {
 
     res.json(ordersByTable);
   } catch (err) {
-    console.error("Error fetching pending orders:", err);
+    console.error("Error fetching active kitchen orders:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
 // Get detailed order history for a table
 router.get("/details/:tableNumber", async (req, res) => {
   const { tableNumber } = req.params;
@@ -177,5 +143,93 @@ router.get("/details/:tableNumber", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+
+// PATCH /orders/update-status
+router.patch("/update-status", async (req, res) => {
+  const { itemId, newStatus } = req.body;
+
+  if (!itemId || !newStatus) {
+    return res.status(400).json({ message: "Missing fields." });
+  }
+
+  try {
+    const orderDoc = await Order.findOne({ "orders.items._id": itemId });
+
+    if (!orderDoc) {
+      return res.status(404).json({ message: "Item not found." });
+    }
+
+    let updated = false;
+
+    for (const orderEntry of orderDoc.orders) {
+      for (const item of orderEntry.items) {
+        if (item._id.toString() === itemId) {
+          item.status = newStatus;
+          updated = true;
+          break;
+        }
+      }
+      if (updated) break;
+    }
+
+    if (updated) {
+      await orderDoc.save();
+      res.json({ message: "Item status updated." });
+    } else {
+      res.status(404).json({ message: "Item not found for update." });
+    }
+  } catch (err) {
+    console.error("Error updating item status:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// GET /orders/pending-preparing-items?category=South%20Indian
+router.get("/pending-preparing-items", async (req, res) => {
+  try {
+    const { category } = req.query;
+
+    const filter = {
+      "orders.items": {
+        $elemMatch: {
+          status: { $in: ["pending", "preparing"] },
+          ...(category ? { category: category } : {}),
+        },
+      },
+    };
+
+    const orders = await Order.find(filter).lean();
+
+    const pendingPreparingItems = [];
+
+    for (const order of orders) {
+      for (const entry of order.orders) {
+        for (const item of entry.items) {
+          if (
+            ["pending", "preparing"].includes(item.status) &&
+            (!category || item.category === category)
+          ) {
+            pendingPreparingItems.push({
+              _id: item._id,
+              name: item.name,
+              status: item.status,
+              category: item.category,
+              tableNumber: order.tableNumber,
+              orderTimestamp: entry.timestamp,
+            });
+          }
+        }
+      }
+    }
+
+    res.json(pendingPreparingItems);
+  } catch (err) {
+    console.error("Error fetching pending & preparing items:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
 
 module.exports = router;
